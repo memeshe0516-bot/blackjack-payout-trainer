@@ -112,7 +112,15 @@ function CorrectSummary({ problem, minimalOk }: { problem: Problem; minimalOk: b
     <p className="result-message">{minimalOk ? "最小枚数で配当できました。" : "ただし、もっと少ないチップで配当できます。"}</p>
     <section className="correct-summary" aria-label="問題と模範解答">
       <div className="correct-problem"><span>問題</span><strong>${problem.amount}</strong></div>
-      <div className="model-answer"><span>模範解答</span><div className="model-chips">{DESC.flatMap(d => Array(model[d] || 0).fill(0).map((_, i) => <Chip denom={d} small key={`${d}-${i}`} />))}</div></div>
+      <div className="model-answer">
+        <span>模範解答</span>
+        <div className="model-chip-rows">
+          {DENOMS.filter(d => model[d] > 0).map(d => <div className="model-chip-row" key={d}>
+            <span>{META[d].label}</span>
+            <div className="model-chips">{Array(model[d]).fill(0).map((_, i) => <Chip denom={d} small key={`${d}-${i}`} />)}</div>
+          </div>)}
+        </div>
+      </div>
     </section>
   </>;
 }
