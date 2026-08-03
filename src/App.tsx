@@ -23,6 +23,43 @@ const META: Record<number, { label: string; short: string; cls: string; group: n
   400: { label: "$100", short: "$100", cls: "hundred", group: 1 },
 };
 const MODE_NAMES: Record<Mode, string> = { beginner: "初級", intermediate: "中級", advanced: "上級", exam: "試験", weak: "苦手問題" };
+const ACCESS_KEY = "blackjack-trainer-access";
+const ACCESS_HASH = "577cedb9d046ef26948591edfc893258020f6c566bb16774107e2856d352bb51";
+
+async function sha256(value: string) {
+  const data = new TextEncoder().encode(value);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hash), b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function PasswordGate({ onUnlock }: { onUnlock: () => void }) {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState(false);
+  const [checking, setChecking] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setChecking(true);
+    const valid = await sha256(password) === ACCESS_HASH;
+    setChecking(false);
+    if (!valid) { setError(true); setPassword(""); return; }
+    localStorage.setItem(ACCESS_KEY, ACCESS_HASH);
+    onUnlock();
+  }
+
+  return <main className="app-shell access-screen">
+    <form className="access-card" onSubmit={submit}>
+      <div className="access-suit">♠</div>
+      <p className="access-kicker">BLACKJACK PAYOUT TRAINER</p>
+      <h1>トレーニングルーム</h1>
+      <p className="access-copy">利用者用パスワードを入力してください</p>
+      <label htmlFor="access-password">パスワード</label>
+      <input id="access-password" type="password" value={password} onChange={e => { setPassword(e.target.value); setError(false); }} autoComplete="current-password" autoFocus />
+      {error && <p className="access-error" role="alert">パスワードが違います</p>}
+      <button className="gold-btn" type="submit" disabled={!password || checking}>{checking ? "確認中…" : "入室する"}</button>
+    </form>
+  </main>;
+}
 
 function total(c: Counts) { return DENOMS.reduce((s, d) => s + d * (c[d] || 0), 0); }
 function count(c: Counts) { return DENOMS.reduce((s, d) => s + (c[d] || 0), 0); }
@@ -129,7 +166,7 @@ function Modal({ children, actions }: { children: React.ReactNode; actions: Reac
   return <div className="modal-backdrop"><div className="modal" role="dialog" aria-modal="true"><div className="modal-mark">♠</div><div className="modal-copy">{children}</div><div className="modal-actions">{actions}</div></div></div>;
 }
 
-export default function Home() {
+function Home() {
   const [screen, setScreen] = useState<Screen>("home");
   const [mode, setMode] = useState<Mode>("beginner");
   const [problem, setProblem] = useState<Problem | null>(null);
@@ -292,6 +329,11 @@ export default function Home() {
     {modal?.type === "skip" && <Modal actions={<><button onClick={() => setModal(null)}>問題に戻る</button><button className="gold-btn" onClick={skipNow}>次へ進む</button></>}><h3>この問題を飛ばして<br />次へ進みますか？</h3></Modal>}
     {modal?.type === "home" && <Modal actions={<><button onClick={() => setModal(null)}>練習を続ける</button><button className="gold-btn" onClick={exitToHome}>{mode === "exam" ? "試験を終了" : "ホームへ戻る"}</button></>}><h3>{mode === "exam" ? "試験を終了しますか？" : "練習を終了してホーム画面に戻りますか？"}</h3>{mode === "exam" && <p>現在の結果は途中終了として記録されます。</p>}</Modal>}
   </main>;
+}
+
+export default function ProtectedHome() {
+  const [unlocked, setUnlocked] = useState(() => localStorage.getItem(ACCESS_KEY) === ACCESS_HASH);
+  return unlocked ? <Home /> : <PasswordGate onUnlock={() => setUnlocked(true)} />;
 }
 
 function TopBar({ title, back }: { title: string; back: () => void }) {
