@@ -151,6 +151,7 @@ function CorrectSummary({ problem, minimalOk }: { problem: Problem; minimalOk: b
       <div className="correct-problem"><span>問題</span><strong>${problem.amount}</strong></div>
       <div className="model-answer">
         <span>模範解答</span>
+        <strong className="model-total">{money(problem.amount * 6)}</strong>
         <div className="model-chip-rows">
           {DENOMS.filter(d => model[d] > 0).map(d => <div className="model-chip-row" key={d}>
             <span>{META[d].label}</span>
@@ -162,8 +163,8 @@ function CorrectSummary({ problem, minimalOk }: { problem: Problem; minimalOk: b
   </>;
 }
 
-function Modal({ children, actions }: { children: React.ReactNode; actions: React.ReactNode }) {
-  return <div className="modal-backdrop"><div className="modal" role="dialog" aria-modal="true"><div className="modal-mark">♠</div><div className="modal-copy">{children}</div><div className="modal-actions">{actions}</div></div></div>;
+function Modal({ children, actions, stacked = false }: { children: React.ReactNode; actions: React.ReactNode; stacked?: boolean }) {
+  return <div className="modal-backdrop"><div className="modal" role="dialog" aria-modal="true"><div className="modal-mark">♠</div><div className="modal-copy">{children}</div><div className={`modal-actions${stacked ? " stacked" : ""}`}>{actions}</div></div></div>;
 }
 
 function Home() {
@@ -323,8 +324,8 @@ function Home() {
     <section className="rack"><p>チップをタップして追加</p><div>{DENOMS.map(d => <Chip denom={d} onClick={() => add(d)} key={d} />)}</div></section>
     <section className="game-actions"><button className="confirm" onClick={confirmAnswer}>配当確定</button><button onClick={() => setAnswer(EMPTY())}>全削除</button>{mode !== "exam" && <><button disabled={mistakes === 0 || revealed} onClick={() => setModal({ type: "reveal" })}>答えを見る</button><button onClick={requestNext}>次の問題</button></>}</section>
     {modal?.type === "wrong" && <Modal actions={<button className="gold-btn" onClick={() => setModal(null)}>もう一度考える</button>}><h3>配当が違います</h3><p>チップを追加・削除して、もう一度考えてみましょう。</p></Modal>}
-    {modal?.type === "correct" && <Modal actions={<button className="gold-btn" onClick={nextProblem}>次の問題へ</button>}><CorrectSummary problem={problem} minimalOk /></Modal>}
-    {modal?.type === "correctNonMinimal" && <Modal actions={<button className="gold-btn" onClick={nextProblem}>次の問題へ</button>}><CorrectSummary problem={problem} minimalOk={false} /></Modal>}
+    {modal?.type === "correct" && <Modal stacked actions={<><button className="gold-btn" onClick={nextProblem}>次の問題へ</button><button onClick={exitToHome}>⌂　練習を終える</button></>}><CorrectSummary problem={problem} minimalOk /></Modal>}
+    {modal?.type === "correctNonMinimal" && <Modal stacked actions={<><button className="gold-btn" onClick={nextProblem}>次の問題へ</button><button onClick={exitToHome}>⌂　練習を終える</button></>}><CorrectSummary problem={problem} minimalOk={false} /></Modal>}
     {modal?.type === "reveal" && <Modal actions={<><button onClick={() => setModal(null)}>問題に戻る</button><button className="gold-btn" onClick={revealAnswer}>表示する</button></>}><h3>正解のチップ構成を表示しますか？</h3><p>この問題は不正解として記録されます。</p></Modal>}
     {modal?.type === "skip" && <Modal actions={<><button onClick={() => setModal(null)}>問題に戻る</button><button className="gold-btn" onClick={skipNow}>次へ進む</button></>}><h3>この問題を飛ばして<br />次へ進みますか？</h3></Modal>}
     {modal?.type === "home" && <Modal actions={<><button onClick={() => setModal(null)}>練習を続ける</button><button className="gold-btn" onClick={exitToHome}>{mode === "exam" ? "試験を終了" : "ホームへ戻る"}</button></>}><h3>{mode === "exam" ? "試験を終了しますか？" : "練習を終了してホーム画面に戻りますか？"}</h3>{mode === "exam" && <p>現在の結果は途中終了として記録されます。</p>}</Modal>}
