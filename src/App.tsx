@@ -1,14 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-type Mode = "beginner" | "intermediate" | "advanced" | "exam" | "weak";
+type Mode = "beginner" | "intermediate" | "advanced" | "exam" | "weak" | "insurance";
 type Screen = "home" | "game" | "records" | "help" | "examResult";
 type Counts = Record<number, number>;
 type Problem = { amount: number; chips: Counts; id: string };
+type InsuranceOutcome = "success" | "failure";
+type InsuranceAction = "push" | "collectOriginalPay2to1" | "collectInsurance" | "collectInsuranceChange";
+type InsuranceProblem = {
+  originalAmount: number; originalChips: Counts;
+  insuranceAmount: number; insuranceChips: Counts;
+  outcome: InsuranceOutcome; action: InsuranceAction; id: string;
+};
 type Attempt = {
   id: string; date: string; mode: Mode; amount: number; problemChips: Counts;
   answerChips: Counts; correct: boolean; minimal: boolean; mistakes: number;
   seconds: number; revealed: boolean; skipped: boolean; timedOut?: boolean;
 };
+type InsuranceAttempt = { id: string; correct: boolean; seconds: number };
 type WeakItem = { key: string; amount: number; chips: Counts; misses: number; streak: number };
 type ExamRow = { problem: Problem; answer: Counts; correct: boolean; minimal: boolean; seconds: number; timedOut?: boolean };
 
@@ -22,7 +30,13 @@ const META: Record<number, { label: string; short: string; cls: string; group: n
   100: { label: "$25", short: "$25", cls: "twentyfive", group: 4 },
   400: { label: "$100", short: "$100", cls: "hundred", group: 1 },
 };
-const MODE_NAMES: Record<Mode, string> = { beginner: "初級", intermediate: "中級", advanced: "上級", exam: "試験", weak: "苦手問題" };
+const MODE_NAMES: Record<Mode, string> = { beginner: "初級", intermediate: "中級", advanced: "上級", exam: "試験", weak: "苦手問題", insurance: "インシュアランス" };
+const INSURANCE_ACTIONS: { value: InsuranceAction; label: string }[] = [
+  { value: "push", label: "プッシュ" },
+  { value: "collectOriginalPay2to1", label: "オリジナル回収＋2 to 1配当" },
+  { value: "collectInsurance", label: "インシュアランス回収" },
+  { value: "collectInsuranceChange", label: "インシュアランス回収（おつり有）" },
+];
 const ACCESS_KEY = "blackjack-trainer-access";
 const ACCESS_HASH = "577cedb9d046ef26948591edfc893258020f6c566bb16774107e2856d352bb51";
 
@@ -50,7 +64,7 @@ function PasswordGate({ onUnlock }: { onUnlock: () => void }) {
   return <main className="app-shell access-screen">
     <form className="access-card" onSubmit={submit}>
       <div className="access-suit">♠</div>
-      <p className="access-kicker">BLACKJACK PAYOUT TRAINER</p>
+      <p className="access-kicker">BLACKJACK PRACTICAL TRAINER</p>
       <h1>トレーニングルーム</h1>
       <p className="access-copy">利用者用パスワードを入力してください</p>
       <label htmlFor="access-password">パスワード</label>
@@ -88,6 +102,52 @@ function randomComposition(amount: number) {
     c[s.from]--; c[s.to] += s.n;
   }
   return c;
+}
+
+function makeInsuranceProblem(): InsuranceProblem {
+  let originalAmount: number;
+  let insuranceAmount: number;
+  let outcome: InsuranceOutcome;
+  let action: InsuranceAction;
+
+  if (Math.random() < .15) {
+    originalAmount = randomInt(3, 250) * 2;
+    insuranceAmount = originalAmount / 2;
+    outcome = Math.random() < .5 ? "success" : "failure";
+    action = outcome === "success" ? "push" : "collectInsurance";
+  } else {
+    originalAmount = randomInt(5, 500);
+    const pattern = randomInt(0, 3);
+    if (pattern === 0) {
+      outcome = "success"; action = "push";
+      insuranceAmount = randomInt(Math.floor(originalAmount / 2) + 1, 500);
+    } else if (pattern === 1) {
+      outcome = "success"; action = "collectOriginalPay2to1";
+      insuranceAmount = randomInt(1, Math.floor((originalAmount - 1) / 2));
+    } else if (pattern === 2) {
+      outcome = "failure"; action = "collectInsurance";
+      insuranceAmount = randomInt(1, Math.floor((originalAmount - 1) / 2));
+    } else {
+      outcome = "failure"; action = "collectInsuranceChange";
+      insuranceAmount = randomInt(Math.floor(originalAmount / 2) + 1, 500);
+    }
+  }
+
+  return {
+    originalAmount,
+    originalChips: minimal(originalAmount * 4),
+    insuranceAmount,
+    insuranceChips: minimal(insuranceAmount * 4),
+    outcome,
+    action,
+    id: `${Date.now()}-${Math.random()}`,
+  };
+}
+
+function insuranceTarget(problem: InsuranceProblem) {
+  if (problem.action === "collectOriginalPay2to1") return problem.insuranceAmount * 8;
+  if (problem.action === "collectInsuranceChange") return problem.insuranceAmount * 4 - problem.originalAmount * 2;
+  return 0;
 }
 
 function makeProblem(mode: Mode, weak: WeakItem[]): Problem {
@@ -163,6 +223,36 @@ function CorrectSummary({ problem, minimalOk }: { problem: Problem; minimalOk: b
   </>;
 }
 
+function ChipRows({ chips }: { chips: Counts }) {
+  return <div className="model-chip-rows">
+    {DENOMS.filter(d => chips[d] > 0).map(d => <div className="model-chip-row" key={d}>
+      <span>{META[d].label}</span>
+      <div className="model-chips">{Array(chips[d]).fill(0).map((_, i) => <Chip denom={d} small key={`${d}-${i}`} />)}</div>
+    </div>)}
+  </div>;
+}
+
+function InsuranceSummary({ problem }: { problem: InsuranceProblem }) {
+  const target = insuranceTarget(problem);
+  return <section className="insurance-summary" aria-label="インシュアランスの模範解答">
+    <div className="insurance-facts">
+      <div><span>オリジナル</span><strong>${problem.originalAmount}</strong></div>
+      <div><span>インシュアランス</span><strong>${problem.insuranceAmount}</strong></div>
+      <div><span>オリジナルの半額</span><strong>{money(problem.originalAmount * 2)}</strong></div>
+    </div>
+    <div className="correct-action"><span>正しい処理</span><strong>{INSURANCE_ACTIONS.find(a => a.value === problem.action)?.label}</strong></div>
+    {problem.action === "collectOriginalPay2to1" && <div className="insurance-model">
+      <span>2 to 1 配当　合計</span><strong className="model-total">{money(target)}</strong>
+      <div className="payout-set"><b>1セット目</b><ChipRows chips={problem.insuranceChips} /></div>
+      <div className="payout-set"><b>2セット目</b><ChipRows chips={problem.insuranceChips} /></div>
+    </div>}
+    {problem.action === "collectInsuranceChange" && <div className="insurance-model">
+      <span>おつり</span><strong className="model-total">{money(target)}</strong>
+      <ChipRows chips={minimal(target)} />
+    </div>}
+  </section>;
+}
+
 function Modal({ children, actions, stacked = false }: { children: React.ReactNode; actions: React.ReactNode; stacked?: boolean }) {
   return <div className="modal-backdrop"><div className="modal" role="dialog" aria-modal="true"><div className="modal-mark">♠</div><div className="modal-copy">{children}</div><div className={`modal-actions${stacked ? " stacked" : ""}`}>{actions}</div></div></div>;
 }
@@ -171,12 +261,15 @@ function Home() {
   const [screen, setScreen] = useState<Screen>("home");
   const [mode, setMode] = useState<Mode>("beginner");
   const [problem, setProblem] = useState<Problem | null>(null);
+  const [insuranceProblem, setInsuranceProblem] = useState<InsuranceProblem | null>(null);
+  const [insuranceAction, setInsuranceAction] = useState<InsuranceAction | null>(null);
   const [answer, setAnswer] = useState<Counts>(EMPTY());
   const [elapsed, setElapsed] = useState(0);
   const [examLeft, setExamLeft] = useState(90);
   const [examIndex, setExamIndex] = useState(0);
   const [examRows, setExamRows] = useState<ExamRow[]>([]);
   const [attempts, setAttempts] = useState<Attempt[]>([]);
+  const [insuranceAttempts, setInsuranceAttempts] = useState<InsuranceAttempt[]>([]);
   const [weak, setWeak] = useState<WeakItem[]>([]);
   const [mistakes, setMistakes] = useState(0);
   const [confirmed, setConfirmed] = useState(false);
@@ -188,10 +281,12 @@ function Home() {
   useEffect(() => {
     try {
       setAttempts(JSON.parse(localStorage.getItem("bj-attempts") || "[]"));
+      setInsuranceAttempts(JSON.parse(localStorage.getItem("bj-insurance-attempts") || "[]"));
       setWeak(JSON.parse(localStorage.getItem("bj-weak") || "[]"));
     } catch { /* ignore damaged local data */ }
   }, []);
   useEffect(() => { if (attempts.length) localStorage.setItem("bj-attempts", JSON.stringify(attempts.slice(-500))); }, [attempts]);
+  useEffect(() => { if (insuranceAttempts.length) localStorage.setItem("bj-insurance-attempts", JSON.stringify(insuranceAttempts.slice(-500))); }, [insuranceAttempts]);
   useEffect(() => { localStorage.setItem("bj-weak", JSON.stringify(weak)); }, [weak]);
 
   useEffect(() => {
@@ -210,10 +305,15 @@ function Home() {
   function start(m: Mode) {
     if (m === "weak" && weak.filter(w => w.streak < 3).length === 0) { setModal({ type: "noWeak" }); return; }
     finalized.current = false; setMode(m); setAnswer(EMPTY()); setMistakes(0); setConfirmed(false); setRevealed(false); setElapsed(0);
-    setExamLeft(90); setExamIndex(0); setExamRows([]); startedAt.current = Date.now(); setProblem(makeProblem(m, weak)); setScreen("game");
+    setExamLeft(90); setExamIndex(0); setExamRows([]); startedAt.current = Date.now();
+    if (m === "insurance") { setProblem(null); setInsuranceProblem(makeInsuranceProblem()); setInsuranceAction(null); }
+    else { setInsuranceProblem(null); setProblem(makeProblem(m, weak)); }
+    setScreen("game");
   }
   function nextProblem() {
-    setProblem(makeProblem(mode, weak)); setAnswer(EMPTY()); setMistakes(0); setConfirmed(false); setRevealed(false); setElapsed(0); startedAt.current = Date.now(); setModal(null);
+    if (mode === "insurance") { setInsuranceProblem(makeInsuranceProblem()); setInsuranceAction(null); }
+    else setProblem(makeProblem(mode, weak));
+    setAnswer(EMPTY()); setMistakes(0); setConfirmed(false); setRevealed(false); setElapsed(0); startedAt.current = Date.now(); setModal(null);
   }
   function add(d: number) { setAnswer(a => ({ ...a, [d]: (a[d] || 0) + 1 })); }
   function remove(d: number) { setAnswer(a => ({ ...a, [d]: Math.max(0, (a[d] || 0) - 1) })); }
@@ -254,6 +354,41 @@ function Home() {
     }
   }
 
+  function saveInsuranceAttempt(correct: boolean, opts: { revealed?: boolean; skipped?: boolean } = {}) {
+    if (!insuranceProblem) return;
+    void opts;
+    setInsuranceAttempts(a => [...a, { id: `${Date.now()}-${Math.random()}`, correct, seconds: elapsed }]);
+  }
+
+  function confirmInsuranceAnswer() {
+    if (!insuranceProblem) return;
+    setConfirmed(true);
+    const correct = insuranceAction === insuranceProblem.action && total(answer) === insuranceTarget(insuranceProblem);
+    if (!correct) { setMistakes(m => m + 1); setModal({ type: "insuranceWrong" }); return; }
+    saveInsuranceAttempt(true);
+    setModal({ type: "insuranceCorrect" });
+  }
+
+  function revealInsuranceAnswer() {
+    if (!insuranceProblem) return;
+    setInsuranceAction(insuranceProblem.action);
+    setAnswer(minimal(insuranceTarget(insuranceProblem)));
+    setRevealed(true);
+    saveInsuranceAttempt(false, { revealed: true });
+    setModal({ type: "insuranceModel" });
+  }
+
+  function skipInsuranceNow() { saveInsuranceAttempt(false, { skipped: true }); nextProblem(); }
+
+  function requestInsuranceNext() {
+    if (!confirmed) { setModal({ type: "insuranceSkip" }); return; }
+    if (mistakes > 0 && !revealed && insuranceProblem &&
+      (insuranceAction !== insuranceProblem.action || total(answer) !== insuranceTarget(insuranceProblem))) {
+      saveInsuranceAttempt(false, { skipped: true });
+    }
+    nextProblem();
+  }
+
   function revealAnswer() { if (!problem) return; setAnswer(minimal(problem.amount * 6)); setRevealed(true); saveAttempt(false, false, { revealed: true }); setModal(null); }
   function skipNow() { saveAttempt(false, false, { skipped: true }); nextProblem(); }
   function requestNext() {
@@ -281,40 +416,68 @@ function Home() {
   const stats = useMemo(() => {
     const totalN = attempts.length, correctN = attempts.filter(a => a.correct).length, minimalN = attempts.filter(a => a.correct && a.minimal).length;
     const timed = attempts.filter(a => a.correct); const avg = timed.length ? timed.reduce((s, a) => s + a.seconds, 0) / timed.length : 0;
-    return { totalN, correctN, minimalN, avg };
-  }, [attempts]);
+    const insuranceCorrect = insuranceAttempts.filter(a => a.correct).length;
+    const insuranceAvg = insuranceAttempts.length ? insuranceAttempts.reduce((s, a) => s + a.seconds, 0) / insuranceAttempts.length : 0;
+    return { totalN, correctN, minimalN, avg, insuranceN: insuranceAttempts.length, insuranceCorrect, insuranceAvg };
+  }, [attempts, insuranceAttempts]);
 
   if (screen === "home") return <main className="app-shell home-screen">
-    <section className="brand"><div className="brand-suit">♠</div><p>BLACKJACK PAYOUT TRAINER</p><h1><span>3：2</span> 配当トレーニング</h1><p className="lead">チップを見て、考えて、正しく配当する。</p></section>
+    <section className="brand"><div className="brand-suit">♠</div><p>BLACKJACK PRACTICAL TRAINER</p><h1>ブラックジャック<br /><span>実務トレーニング</span></h1><p className="lead">チップを見て、考えて、正しく処理する。</p></section>
     <section className="mode-grid">
       <button className="mode-card beginner" onClick={() => start("beginner")}><span className="mode-icon">♣</span><b>初級モード</b><small>5〜100ドル・最小枚数</small></button>
       <button className="mode-card intermediate" onClick={() => start("intermediate")}><span className="mode-icon">♦</span><b>中級モード</b><small>5〜500ドル・最小枚数</small></button>
       <button className="mode-card advanced" onClick={() => start("advanced")}><span className="mode-icon">♠</span><b>上級モード</b><small>5〜500ドル・ランダム構成</small></button>
       <button className="mode-card exam" onClick={() => start("exam")}><span className="mode-icon">★</span><b>試験モード</b><small>3問・90秒</small></button>
+      <button className="mode-card insurance" onClick={() => start("insurance")}><span className="mode-icon">A</span><b>インシュアランス練習</b><small>条件判断＋回収・配当・おつり</small></button>
     </section>
     <section className="sub-actions">
       <button onClick={() => start("weak")}><span>↻</span>苦手問題<small>{weak.filter(w => w.streak < 3).length}問</small></button>
       <button onClick={() => setScreen("records")}><span>▥</span>記録を見る</button>
       <button onClick={() => setScreen("help")}><span>?</span>遊び方・チップ説明</button>
     </section>
-    <footer>BLACKJACK PAYS 3 TO 2</footer>
+    <footer>BLACKJACK PRACTICAL TRAINING</footer>
     {modal?.type === "noWeak" && <Modal actions={<button className="gold-btn" onClick={() => setModal(null)}>OK</button>}><h3>苦手問題はまだありません</h3><p>間違えた問題やスキップした問題が、ここに登録されます。</p></Modal>}
   </main>;
 
   if (screen === "records") return <main className="app-shell info-screen"><TopBar title="記録" back={() => setScreen("home")} />
     <section className="stats-grid"><div><small>正答率</small><b>{stats.totalN ? Math.round(stats.correctN / stats.totalN * 100) : 0}%</b><span>{stats.correctN} / {stats.totalN}問</span></div><div><small>最小枚数正答率</small><b>{stats.totalN ? Math.round(stats.minimalN / stats.totalN * 100) : 0}%</b><span>{stats.minimalN}問</span></div><div><small>平均回答時間</small><b>{stats.avg.toFixed(1)}秒</b><span>正解した問題</span></div></section>
-    <section className="record-list"><h2>最近の記録</h2>{attempts.length === 0 ? <p className="empty-copy">まだ記録がありません。</p> : attempts.slice().reverse().slice(0, 20).map(a => <article key={a.id}><span className={a.correct ? "good" : "bad"}>{a.correct ? "正解" : "不正解"}</span><div><b>{MODE_NAMES[a.mode]} ・ ベット ${a.amount}</b><small>{new Date(a.date).toLocaleString("ja-JP")} ／ {a.seconds}秒{a.correct && !a.minimal ? " ／ 金額のみ正解" : ""}</small></div></article>)}</section>
+    <section className="insurance-stats"><h2>インシュアランス</h2><div><span><small>正解・不正解</small><b>{stats.insuranceCorrect} / {stats.insuranceN}問</b></span><span><small>正答率</small><b>{stats.insuranceN ? Math.round(stats.insuranceCorrect / stats.insuranceN * 100) : 0}%</b></span><span><small>平均解答時間</small><b>{stats.insuranceAvg.toFixed(1)}秒</b></span></div></section>
+    <section className="record-list"><h2>インシュアランスの記録</h2>{insuranceAttempts.length === 0 ? <p className="empty-copy">まだ記録がありません。</p> : insuranceAttempts.slice().reverse().slice(0, 20).map(a => <article key={a.id}><span className={a.correct ? "good" : "bad"}>{a.correct ? "正解" : "不正解"}</span><div><b>解答時間　{a.seconds}秒</b></div></article>)}</section>
+    <section className="record-list"><h2>3：2配当の記録</h2>{attempts.length === 0 ? <p className="empty-copy">まだ記録がありません。</p> : attempts.slice().reverse().slice(0, 20).map(a => <article key={a.id}><span className={a.correct ? "good" : "bad"}>{a.correct ? "正解" : "不正解"}</span><div><b>{MODE_NAMES[a.mode]} ・ ベット ${a.amount}</b><small>{new Date(a.date).toLocaleString("ja-JP")} ／ {a.seconds}秒{a.correct && !a.minimal ? " ／ 金額のみ正解" : ""}</small></div></article>)}</section>
   </main>;
 
   if (screen === "help") return <main className="app-shell info-screen"><TopBar title="遊び方・チップ説明" back={() => setScreen("home")} />
     <section className="help-card"><h2>配当のしかた</h2><p>問題のチップだけを見てベット額を読み取り、1.5倍の配当をラックから選びます。元のベットは配当に含めません。</p><div className="formula"><span>ベット</span><b>× 1.5</b><span>＝ 配当</span></div></section>
     <section className="help-card"><h2>チップの額面</h2><div className="chip-guide">{DENOMS.map(d => <div key={d}><Chip denom={d} /><b>{META[d].label}</b></div>)}</div><p className="note">問題チップには額面が表示されません。色と枚数で判断しましょう。奇数ドルの配当には25セントチップが2枚必要です。</p></section>
+    <section className="help-card"><h2>インシュアランス練習</h2><p>オリジナルとインシュアランスのチップ、成功・失敗の結果を見て処理を選びます。配当やおつりが必要な問題では、合計金額が合うようにチップを置いてください。</p></section>
   </main>;
 
   if (screen === "examResult") {
     const right = examRows.filter(r => r.correct).length;
     return <main className="app-shell info-screen"><TopBar title="試験結果" back={() => setScreen("home")} /><section className="result-hero"><span>RESULT</span><b>{right} / 3</b><p>正答率 {Math.round(right / 3 * 100)}%</p></section><section className="exam-list">{examRows.slice(0, 3).map((r, i) => <article key={i}><header><b>第{i + 1}問</b><span className={r.correct ? "good" : "bad"}>{r.correct ? "正解" : r.timedOut ? "時間切れ" : "不正解"}</span></header><ProblemPile chips={r.problem.chips} compact /><div className="result-detail"><p>ベット額 <b>${r.problem.amount}</b></p><p>回答 <b>{money(total(r.answer))}</b></p><p>正解 <b>{money(r.problem.amount * 6)}</b></p><p>時間 <b>{r.seconds}秒</b></p></div><div className="correct-chips"><span>最小枚数の配当</span>{DESC.filter(d => minimal(r.problem.amount * 6)[d]).map(d => <span key={d}>{META[d].label}×{minimal(r.problem.amount * 6)[d]}</span>)}</div></article>)}</section><button className="wide-gold" onClick={() => start("exam")}>もう一度挑戦</button></main>;
   }
+
+  if (mode === "insurance" && insuranceProblem) return <main className="app-shell game-screen insurance-game">
+    <header className="game-header"><button aria-label="ホームへ戻る" onClick={() => setModal({ type: "home" })}>⌂</button><div><span>インシュアランス</span><b>{String(Math.floor(elapsed / 60)).padStart(2, "0")}:{String(elapsed % 60).padStart(2, "0")}</b></div></header>
+    <section className="insurance-problem-zone">
+      <p>正しい処理を選んでください</p>
+      <div className="insurance-bets">
+        <article><h2>Original bet</h2><ProblemPile chips={insuranceProblem.originalChips} /></article>
+        <article><h2>Insurance bet</h2><ProblemPile chips={insuranceProblem.insuranceChips} /></article>
+      </div>
+      <div className={`insurance-outcome ${insuranceProblem.outcome}`}><span>結果</span><b>インシュアランス{insuranceProblem.outcome === "success" ? "成功" : "失敗"}</b></div>
+    </section>
+    <section className="procedure-zone"><h2>処理を選択</h2><div>{INSURANCE_ACTIONS.map(a => <button className={insuranceAction === a.value ? "selected" : ""} onClick={() => setInsuranceAction(a.value)} aria-pressed={insuranceAction === a.value} key={a.value}>{a.label}</button>)}</div></section>
+    <section className="rack"><p>配当・おつりがある場合はチップを追加</p><div>{DENOMS.map(d => <Chip denom={d} onClick={() => add(d)} key={d} />)}</div></section>
+    <section className="answer-zone insurance-answer"><header><h2>配当・返却用チップ</h2><span>{count(answer)} CHIPS</span></header><div className="answer-lines">{DENOMS.map(d => <GroupedRow denom={d} qty={answer[d] || 0} remove={answer[d] ? () => remove(d) : undefined} key={d} />)}</div></section>
+    <section className="game-actions insurance-actions"><button className="confirm" onClick={confirmInsuranceAnswer}>回答確定</button><button onClick={() => setAnswer(EMPTY())}>チップ全削除</button><button disabled={mistakes === 0 || revealed} onClick={() => setModal({ type: "insuranceReveal" })}>答えを見る</button><button onClick={requestInsuranceNext}>次の問題</button></section>
+    {modal?.type === "insuranceWrong" && <Modal actions={<button className="gold-btn" onClick={() => setModal(null)}>もう一度考える</button>}><h3>不正解</h3><p>選んだ処理とチップを見直して、もう一度考えてみましょう。</p></Modal>}
+    {modal?.type === "insuranceCorrect" && <Modal stacked actions={<><button className="gold-btn" onClick={nextProblem}>次の問題へ</button><button onClick={exitToHome}>⌂　練習を終える</button></>}><h3>正解！</h3><p className="result-message">正しく処理できました。</p><InsuranceSummary problem={insuranceProblem} /></Modal>}
+    {modal?.type === "insuranceReveal" && <Modal actions={<><button onClick={() => setModal(null)}>問題に戻る</button><button className="gold-btn" onClick={revealInsuranceAnswer}>表示する</button></>}><h3>正しい処理とチップを<br />表示しますか？</h3><p>この問題は不正解として記録されます。</p></Modal>}
+    {modal?.type === "insuranceModel" && <Modal stacked actions={<><button onClick={() => setModal(null)}>問題に戻る</button><button className="gold-btn" onClick={nextProblem}>次の問題へ</button><button onClick={exitToHome}>⌂　練習を終える</button></>}><h3>模範解答</h3><InsuranceSummary problem={insuranceProblem} /></Modal>}
+    {modal?.type === "insuranceSkip" && <Modal actions={<><button onClick={() => setModal(null)}>問題に戻る</button><button className="gold-btn" onClick={skipInsuranceNow}>次へ進む</button></>}><h3>この問題を飛ばして<br />次へ進みますか？</h3></Modal>}
+    {modal?.type === "home" && <Modal actions={<><button onClick={() => setModal(null)}>練習を続ける</button><button className="gold-btn" onClick={exitToHome}>ホームへ戻る</button></>}><h3>練習を終了してホーム画面に戻りますか？</h3></Modal>}
+  </main>;
 
   if (!problem) return null;
   return <main className="app-shell game-screen">
