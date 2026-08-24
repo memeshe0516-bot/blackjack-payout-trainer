@@ -120,7 +120,7 @@ function makeInsuranceProblem(): InsuranceProblem {
     const pattern = randomInt(0, 3);
     if (pattern === 0) {
       outcome = "success"; action = "push";
-      insuranceAmount = randomInt(Math.floor(originalAmount / 2) + 1, 500);
+      insuranceAmount = randomInt(Math.floor(originalAmount / 2) + 1, originalAmount);
     } else if (pattern === 1) {
       outcome = "success"; action = "collectOriginalPay2to1";
       insuranceAmount = randomInt(1, Math.floor((originalAmount - 1) / 2));
@@ -129,7 +129,7 @@ function makeInsuranceProblem(): InsuranceProblem {
       insuranceAmount = randomInt(1, Math.floor((originalAmount - 1) / 2));
     } else {
       outcome = "failure"; action = "collectInsuranceChange";
-      insuranceAmount = randomInt(Math.floor(originalAmount / 2) + 1, 500);
+      insuranceAmount = randomInt(Math.floor(originalAmount / 2) + 1, originalAmount);
     }
   }
 
