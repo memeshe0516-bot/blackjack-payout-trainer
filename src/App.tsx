@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import "./compact-layout.css";
 
 type Mode = "beginner" | "intermediate" | "advanced" | "exam" | "weak" | "insurance";
 type Screen = "home" | "game" | "records" | "help" | "examResult";
@@ -258,6 +259,8 @@ function Modal({ children, actions, stacked = false }: { children: React.ReactNo
 }
 
 function Home() {
+  // Opt-in layout trial; the ordinary URL keeps the established layout.
+  const compactLayout = new URLSearchParams(window.location.search).get("layout") === "compact";
   const [screen, setScreen] = useState<Screen>("home");
   const [mode, setMode] = useState<Mode>("beginner");
   const [problem, setProblem] = useState<Problem | null>(null);
@@ -422,6 +425,7 @@ function Home() {
   }, [attempts, insuranceAttempts]);
 
   if (screen === "home") return <main className="app-shell home-screen">
+    {compactLayout && <aside className="layout-trial-notice">1.5倍配当・新レイアウト試用中 <a href={window.location.pathname}>通常表示へ戻る</a></aside>}
     <section className="brand"><div className="brand-suit">♠</div><p>BLACKJACK PRACTICAL TRAINER</p><h1>ブラックジャック<br /><span>実務トレーニング</span></h1><p className="lead">チップを見て、考えて、正しく処理する。</p></section>
     <section className="mode-grid">
       <button className="mode-card beginner" onClick={() => start("beginner")}><span className="mode-icon">♣</span><b>初級モード</b><small>5〜100ドル・最小枚数</small></button>
@@ -480,11 +484,11 @@ function Home() {
   </main>;
 
   if (!problem) return null;
-  return <main className="app-shell game-screen">
-    <header className="game-header"><button aria-label="ホームへ戻る" onClick={() => setModal({ type: "home" })}>⌂</button><div><span>{MODE_NAMES[mode]}</span>{mode === "exam" ? <b>{examIndex + 1} / 3　残り {String(Math.floor(examLeft / 60)).padStart(2, "0")}:{String(examLeft % 60).padStart(2, "0")}</b> : <b>{String(Math.floor(elapsed / 60)).padStart(2, "0")}:{String(elapsed % 60).padStart(2, "0")}</b>}</div></header>
-    <section className="problem-zone"><p>このベットを配当してください</p><ProblemPile chips={problem.chips} /></section>
-    <section className="answer-zone"><header><h2>配当エリア</h2><span>{count(answer)} CHIPS</span></header><div className="answer-lines">{DENOMS.map(d => <GroupedRow denom={d} qty={answer[d] || 0} remove={answer[d] ? () => remove(d) : undefined} key={d} />)}</div></section>
-    <section className="rack"><p>チップをタップして追加</p><div>{DENOMS.map(d => <Chip denom={d} onClick={() => add(d)} key={d} />)}</div></section>
+  return <main className={`app-shell game-screen${compactLayout ? " compact-layout" : ""}`}>
+    <header className="game-header"><button aria-label="ホームへ戻る" onClick={() => setModal({ type: "home" })}>⌂</button>{compactLayout && <p className="game-instruction">このベットを配当してください</p>}<div><span>{MODE_NAMES[mode]}</span>{mode === "exam" ? <b>{examIndex + 1} / 3　残り {String(Math.floor(examLeft / 60)).padStart(2, "0")}:{String(examLeft % 60).padStart(2, "0")}</b> : <b>{String(Math.floor(elapsed / 60)).padStart(2, "0")}:{String(elapsed % 60).padStart(2, "0")}</b>}</div></header>
+    <section className="problem-zone" aria-label="問題のベット">{!compactLayout && <p>このベットを配当してください</p>}<ProblemPile chips={problem.chips} /></section>
+    <section className="answer-zone" aria-label="配当エリア">{!compactLayout && <header><h2>配当エリア</h2><span>{count(answer)} CHIPS</span></header>}<div className="answer-lines">{DENOMS.map(d => <GroupedRow denom={d} qty={answer[d] || 0} remove={answer[d] ? () => remove(d) : undefined} key={d} />)}</div></section>
+    <section className="rack" aria-label="配当チップを選択">{!compactLayout && <p>チップをタップして追加</p>}<div>{DENOMS.map(d => <Chip denom={d} onClick={() => add(d)} key={d} />)}</div></section>
     <section className="game-actions"><button className="confirm" onClick={confirmAnswer}>配当確定</button><button onClick={() => setAnswer(EMPTY())}>全削除</button>{mode !== "exam" && <><button disabled={mistakes === 0 || revealed} onClick={() => setModal({ type: "reveal" })}>答えを見る</button><button onClick={requestNext}>次の問題</button></>}</section>
     {modal?.type === "wrong" && <Modal actions={<button className="gold-btn" onClick={() => setModal(null)}>もう一度考える</button>}><h3>配当が違います</h3><p>チップを追加・削除して、もう一度考えてみましょう。</p></Modal>}
     {modal?.type === "correct" && <Modal stacked actions={<><button className="gold-btn" onClick={nextProblem}>次の問題へ</button><button onClick={exitToHome}>⌂　練習を終える</button></>}><CorrectSummary problem={problem} minimalOk /></Modal>}

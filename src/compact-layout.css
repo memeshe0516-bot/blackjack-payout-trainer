@@ -1,0 +1,92 @@
+/* Only enabled by ?layout=compact. Problem and rack chips retain their sizes. */
+.layout-trial-notice {
+  padding: 10px;
+  border: 1px solid var(--gold);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.7;
+  text-align: center;
+}
+.layout-trial-notice a { display: inline-block; margin-left: 8px; color: var(--gold); }
+.compact-layout {
+  display: grid;
+  grid-template-columns: minmax(132px, 42%) minmax(0, 1fr);
+  grid-template-areas: "header header" "problem actions" "rack rack" "answer answer";
+  align-content: start;
+  padding-bottom: 10px;
+}
+.compact-layout .game-header {
+  grid-area: header;
+  height: auto;
+  min-height: 48px;
+  gap: 6px;
+  padding: 4px 8px;
+}
+.compact-layout .game-header > button {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  font-size: 23px;
+}
+.compact-layout .game-instruction {
+  margin: 0;
+  min-width: 0;
+  font-size: clamp(10px, 2.8vw, 14px);
+  line-height: 1.35;
+  font-family: "Yu Mincho", serif;
+}
+.compact-layout .game-header > div {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.compact-layout .game-header span { font-size: 10px; letter-spacing: 0; }
+.compact-layout .game-header b { font-size: clamp(10px, 2.8vw, 14px); }
+.compact-layout .problem-zone {
+  grid-area: problem;
+  min-height: 0;
+  padding: 10px 0;
+  display: flex;
+  align-items: center;
+  overflow: visible;
+}
+.compact-layout .problem-pile {
+  width: 100%;
+  height: auto;
+  margin: 0;
+}
+.compact-layout .pile-run { max-height: none; margin-bottom: 0; }
+.compact-layout .game-actions {
+  grid-area: actions;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 10px 8px 10px 6px;
+  align-content: center;
+  border-bottom: 1px solid rgba(217,179,93,.3);
+}
+.compact-layout .game-actions button {
+  min-height: 44px;
+  padding: 5px 2px;
+  font-size: clamp(11px, 3vw, 14px);
+  border-radius: 8px;
+}
+.compact-layout .rack { grid-area: rack; padding: 8px 10px 12px; }
+.compact-layout .answer-zone {
+  grid-area: answer;
+  margin: 8px 10px 0;
+  border-radius: 10px;
+}
+.compact-layout .answer-row { min-height: 58px; }
+.compact-layout .row-label { width: 42px; flex-basis: 42px; }
+.compact-layout .answer-groups { min-height: 57px; padding: 3px 6px 7px; gap: 7px; }
+.compact-layout .answer-groups > .chip {
+  /* Existing answer chips are 58px: 58 × 0.8 = 46.4px. */
+  flex-basis: 46.4px;
+  width: 46.4px;
+  height: 46.4px;
+  box-shadow: inset 0 0 0 3.2px var(--edge), inset 0 0 0 5.6px #eadfbd,
+    0 2.4px 0 var(--edge), 0 4px 4px rgba(0,0,0,.32);
+}
+.compact-layout .answer-groups .chip-inset span { font-size: 9.6px; }
