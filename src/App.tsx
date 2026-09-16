@@ -259,8 +259,7 @@ function Modal({ children, actions, stacked = false }: { children: React.ReactNo
 }
 
 function Home() {
-  // Opt-in layout trial; the ordinary URL keeps the established layout.
-  const compactLayout = new URLSearchParams(window.location.search).get("layout") === "compact";
+  const compactLayout = true;
   const [screen, setScreen] = useState<Screen>("home");
   const [mode, setMode] = useState<Mode>("beginner");
   const [problem, setProblem] = useState<Problem | null>(null);
@@ -280,36 +279,45 @@ function Home() {
   const [modal, setModal] = useState<null | { type: string; title?: string }>(null);
   const startedAt = useRef(Date.now());
   const finalized = useRef(false);
+  const examDrafts = useRef<ExamRow[]>([]);
+  const examDeadline = useRef(0);
+  const examVisitedAt = useRef(0);
 
   useEffect(() => {
     try {
-      setAttempts(JSON.parse(localStorage.getItem("bj-attempts") || "[]"));
+      setAttempts(JSON.parse(localStorage.getItem("bj-attempts") || "[]").slice(-1000));
       setInsuranceAttempts(JSON.parse(localStorage.getItem("bj-insurance-attempts") || "[]"));
       setWeak(JSON.parse(localStorage.getItem("bj-weak") || "[]"));
     } catch { /* ignore damaged local data */ }
   }, []);
-  useEffect(() => { if (attempts.length) localStorage.setItem("bj-attempts", JSON.stringify(attempts.slice(-500))); }, [attempts]);
+  useEffect(() => { if (attempts.length) localStorage.setItem("bj-attempts", JSON.stringify(attempts.slice(-1000))); }, [attempts]);
   useEffect(() => { if (insuranceAttempts.length) localStorage.setItem("bj-insurance-attempts", JSON.stringify(insuranceAttempts.slice(-500))); }, [insuranceAttempts]);
   useEffect(() => { localStorage.setItem("bj-weak", JSON.stringify(weak)); }, [weak]);
 
   useEffect(() => {
     if (screen !== "game") return;
     const timer = window.setInterval(() => {
-      if (mode === "exam") setExamLeft(v => Math.max(0, v - 1));
+      if (mode === "exam") setExamLeft(Math.max(0, Math.ceil((examDeadline.current - Date.now()) / 1000)));
       else setElapsed(Math.floor((Date.now() - startedAt.current) / 1000));
     }, 1000);
     return () => clearInterval(timer);
   }, [screen, mode]);
 
   useEffect(() => {
-    if (screen === "game" && mode === "exam" && examLeft === 0 && !finalized.current) finishExamTimeout();
+    if (screen === "game" && mode === "exam" && examLeft === 0 && !finalized.current) finishExam(true);
   }, [examLeft, screen, mode]);
 
   function start(m: Mode) {
     if (m === "weak" && weak.filter(w => w.streak < 3).length === 0) { setModal({ type: "noWeak" }); return; }
     finalized.current = false; setMode(m); setAnswer(EMPTY()); setMistakes(0); setConfirmed(false); setRevealed(false); setElapsed(0);
     setExamLeft(90); setExamIndex(0); setExamRows([]); startedAt.current = Date.now();
+    examDeadline.current = Date.now() + 90000; examVisitedAt.current = Date.now();
     if (m === "insurance") { setProblem(null); setInsuranceProblem(makeInsuranceProblem()); setInsuranceAction(null); }
+    else if (m === "exam") {
+      setInsuranceProblem(null);
+      examDrafts.current = Array.from({ length: 3 }, () => ({ problem: makeProblem("exam", weak), answer: EMPTY(), correct: false, minimal: false, seconds: 0 }));
+      setProblem(examDrafts.current[0].problem);
+    }
     else { setInsuranceProblem(null); setProblem(makeProblem(m, weak)); }
     setScreen("game");
   }
@@ -332,7 +340,7 @@ function Home() {
   function saveAttempt(correct: boolean, minimalOk: boolean, opts: { revealed?: boolean; skipped?: boolean; timedOut?: boolean } = {}) {
     if (!problem) return;
     const row: Attempt = { id: `${Date.now()}-${Math.random()}`, date: new Date().toISOString(), mode, amount: problem.amount, problemChips: problem.chips, answerChips: answer, correct, minimal: minimalOk, mistakes, seconds: mode === "exam" ? 90 - examLeft : elapsed, revealed: !!opts.revealed, skipped: !!opts.skipped, timedOut: opts.timedOut };
-    setAttempts(a => [...a, row]);
+    setAttempts(a => [...a, row].slice(-1000));
     if ((!correct || opts.revealed || opts.skipped || opts.timedOut) && mistakes === 0) registerWeak(problem, false);
     else if (correct && mistakes === 0 && mode === "weak") registerWeak(problem, true);
   }
@@ -344,11 +352,9 @@ function Home() {
     const amountOk = total(answer) === wanted;
     const min = minimal(wanted); const minOk = sameCounts(answer, min);
     if (mode === "exam") {
-      const row = { problem, answer: { ...answer }, correct: amountOk, minimal: minOk, seconds: 90 - examLeft };
-      setExamRows(r => [...r, row]);
-      saveAttempt(amountOk, minOk);
-      if (examIndex >= 2) { finalized.current = true; setScreen("examResult"); }
-      else { setExamIndex(i => i + 1); setProblem(makeProblem("exam", weak)); setAnswer(EMPTY()); startedAt.current = Date.now(); }
+      if (Date.now() >= examDeadline.current) { finishExam(true); return; }
+      if (examIndex >= 2) setModal({ type: "finishExam" });
+      else navigateExam(examIndex + 1);
       return;
     }
     if (!amountOk) { setMistakes(m => m + 1); registerWeak(problem, false); setModal({ type: "wrong" }); }
@@ -399,20 +405,47 @@ function Home() {
     if (mistakes > 0 && !revealed && total(answer) !== (problem?.amount || 0) * 6) saveAttempt(false, false, { skipped: true });
     nextProblem();
   }
-  function finishExamTimeout() {
+  function snapshotExam() {
+    const until = Math.min(Date.now(), examDeadline.current);
+    return examDrafts.current.map((row, i) => i === examIndex ? {
+      ...row, answer: { ...answer }, seconds: row.seconds + Math.max(0, until - examVisitedAt.current) / 1000,
+    } : row);
+  }
+  function navigateExam(index: number) {
+    if (finalized.current || index < 0 || index >= 3) return;
+    if (Date.now() >= examDeadline.current) { finishExam(true); return; }
+    examDrafts.current = snapshotExam();
+    setExamIndex(index);
+    setProblem(examDrafts.current[index].problem);
+    setAnswer({ ...examDrafts.current[index].answer });
+    examVisitedAt.current = Date.now();
+    setModal(null);
+  }
+  function finishExam(timedOut = false, goHome = false) {
+    if (finalized.current) return;
     finalized.current = true;
-    if (problem) {
-      const row: ExamRow = { problem, answer: { ...answer }, correct: false, minimal: false, seconds: 90, timedOut: true };
-      setExamRows(r => [...r, row]); saveAttempt(false, false, { timedOut: true });
-      for (let i = examIndex + 1; i < 3; i++) {
-        const p = makeProblem("exam", weak);
-        setExamRows(r => [...r, { problem: p, answer: EMPTY(), correct: false, minimal: false, seconds: 0, timedOut: true }]);
-      }
-    }
-    setScreen("examResult");
+    const rows = snapshotExam().map(row => {
+      const correct = total(row.answer) === row.problem.amount * 6;
+      return { ...row, correct, minimal: sameCounts(row.answer, minimal(row.problem.amount * 6)),
+        seconds: Math.round(row.seconds * 10) / 10,
+        timedOut: timedOut && !correct && count(row.answer) === 0 };
+    });
+    examDrafts.current = rows;
+    setExamRows(rows);
+    const date = new Date().toISOString();
+    const records: Attempt[] = rows.map(row => ({
+      id: `exam-${row.problem.id}`, date, mode: "exam", amount: row.problem.amount,
+      problemChips: row.problem.chips, answerChips: row.answer, correct: row.correct,
+      minimal: row.minimal, mistakes: 0, seconds: row.seconds, revealed: false,
+      skipped: count(row.answer) === 0, timedOut: row.timedOut,
+    }));
+    setAttempts(a => [...a, ...records].slice(-1000));
+    rows.filter(row => !row.correct).forEach(row => registerWeak(row.problem, false));
+    setModal(null);
+    setScreen(goHome ? "home" : "examResult");
   }
   function exitToHome() {
-    if (mode === "exam" && problem) saveAttempt(false, false, { timedOut: true });
+    if (mode === "exam" && problem) { finishExam(Date.now() >= examDeadline.current, true); return; }
     setModal(null); setScreen("home");
   }
 
@@ -425,7 +458,6 @@ function Home() {
   }, [attempts, insuranceAttempts]);
 
   if (screen === "home") return <main className="app-shell home-screen">
-    {compactLayout && <aside className="layout-trial-notice">1.5倍配当・新レイアウト試用中 <a href={window.location.pathname}>通常表示へ戻る</a></aside>}
     <section className="brand"><div className="brand-suit">♠</div><p>BLACKJACK PRACTICAL TRAINER</p><h1>ブラックジャック<br /><span>実務トレーニング</span></h1><p className="lead">チップを見て、考えて、正しく処理する。</p></section>
     <section className="mode-grid">
       <button className="mode-card beginner" onClick={() => start("beginner")}><span className="mode-icon">♣</span><b>初級モード</b><small>5〜100ドル・最小枚数</small></button>
@@ -489,7 +521,8 @@ function Home() {
     <section className="problem-zone" aria-label="問題のベット">{!compactLayout && <p>このベットを配当してください</p>}<ProblemPile chips={problem.chips} /></section>
     <section className="answer-zone" aria-label="配当エリア">{!compactLayout && <header><h2>配当エリア</h2><span>{count(answer)} CHIPS</span></header>}<div className="answer-lines">{DENOMS.map(d => <GroupedRow denom={d} qty={answer[d] || 0} remove={answer[d] ? () => remove(d) : undefined} key={d} />)}</div></section>
     <section className="rack" aria-label="配当チップを選択">{!compactLayout && <p>チップをタップして追加</p>}<div>{DENOMS.map(d => <Chip denom={d} onClick={() => add(d)} key={d} />)}</div></section>
-    <section className="game-actions"><button className="confirm" onClick={confirmAnswer}>配当確定</button><button onClick={() => setAnswer(EMPTY())}>全削除</button>{mode !== "exam" && <><button disabled={mistakes === 0 || revealed} onClick={() => setModal({ type: "reveal" })}>答えを見る</button><button onClick={requestNext}>次の問題</button></>}</section>
+    <section className="game-actions"><button className="confirm" onClick={confirmAnswer}>{mode === "exam" && examIndex === 2 ? "試験を終了" : "配当確定"}</button><button onClick={() => setAnswer(EMPTY())}>全削除</button>{mode === "exam" ? <><button disabled={examIndex === 0} onClick={() => navigateExam(examIndex - 1)}>前の問題</button><button disabled={examIndex === 2} onClick={() => navigateExam(examIndex + 1)}>次の問題</button></> : <><button disabled={mistakes === 0 || revealed} onClick={() => setModal({ type: "reveal" })}>答えを見る</button><button onClick={requestNext}>次の問題</button></>}</section>
+    {modal?.type === "finishExam" && <Modal actions={<><button onClick={() => setModal(null)}>見直しを続ける</button><button className="gold-btn" onClick={() => finishExam(Date.now() >= examDeadline.current)}>終了して採点</button></>}><h3>試験を終了しますか？</h3><p>現在置いているチップで3問を採点します。残り時間内なら前の問題に戻って修正できます。</p></Modal>}
     {modal?.type === "wrong" && <Modal actions={<button className="gold-btn" onClick={() => setModal(null)}>もう一度考える</button>}><h3>配当が違います</h3><p>チップを追加・削除して、もう一度考えてみましょう。</p></Modal>}
     {modal?.type === "correct" && <Modal stacked actions={<><button className="gold-btn" onClick={nextProblem}>次の問題へ</button><button onClick={exitToHome}>⌂　練習を終える</button></>}><CorrectSummary problem={problem} minimalOk /></Modal>}
     {modal?.type === "correctNonMinimal" && <Modal stacked actions={<><button className="gold-btn" onClick={nextProblem}>次の問題へ</button><button onClick={exitToHome}>⌂　練習を終える</button></>}><CorrectSummary problem={problem} minimalOk={false} /></Modal>}

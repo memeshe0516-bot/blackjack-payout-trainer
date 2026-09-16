@@ -1,13 +1,4 @@
-/* Only enabled by ?layout=compact. Problem and rack chips retain their sizes. */
-.layout-trial-notice {
-  padding: 10px;
-  border: 1px solid var(--gold);
-  border-radius: 8px;
-  font-size: 12px;
-  line-height: 1.7;
-  text-align: center;
-}
-.layout-trial-notice a { display: inline-block; margin-left: 8px; color: var(--gold); }
+/* Default payout layout. Problem and rack chips retain their sizes. */
 .compact-layout {
   display: grid;
   grid-template-columns: minmax(132px, 42%) minmax(0, 1fr);
